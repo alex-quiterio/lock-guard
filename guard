@@ -1,0 +1,60 @@
+#!/bin/bash
+# Turns Lock Guard on or off. Usage: ./guard on|off|status|log|check|build
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LABEL="com.alex-quiterio.lock-guard"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+AGENT="$ROOT/bin/lock-guard-agent"
+LOG="$HOME/Library/Logs/lock-guard.log"
+DOMAIN="gui/$(id -u)"
+
+build() {
+  swiftc -O "$ROOT/Sources/main.swift" -o "$AGENT"
+  echo "built $AGENT"
+}
+
+is_on() { launchctl print "$DOMAIN/$LABEL" >/dev/null 2>&1; }
+
+on() {
+  build
+  mkdir -p "$HOME/Library/LaunchAgents"
+  cat > "$PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key><array><string>$AGENT</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>LimitLoadToSessionType</key><string>Aqua</string>
+  <key>ProcessType</key><string>Interactive</string>
+  <key>StandardErrorPath</key><string>$LOG</string>
+</dict>
+</plist>
+EOF
+  is_on && launchctl bootout "$DOMAIN/$LABEL" || true
+  launchctl bootstrap "$DOMAIN" "$PLIST"
+  echo "Lock Guard is ON. It starts again after a restart, until you run: ./guard off"
+}
+
+off() {
+  is_on && launchctl bootout "$DOMAIN/$LABEL" || true
+  rm -f "$PLIST"
+  echo "Lock Guard is OFF."
+}
+
+status() {
+  if is_on; then echo "Lock Guard is ON"; else echo "Lock Guard is OFF"; fi
+}
+
+case "${1:-status}" in
+  on) on ;;
+  off) off ;;
+  status) status ;;
+  log) tail -n "${2:-40}" "$LOG" 2>/dev/null || echo "no reports yet" ;;
+  check) [ -x "$AGENT" ] || build; "$AGENT" check "${2:-10}" --notify ;;
+  build) build ;;
+  *) echo "usage: ./guard on|off|status|log [lines]|check [minutes]|build"; exit 1 ;;
+esac
