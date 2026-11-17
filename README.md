@@ -13,6 +13,7 @@ A shield in the menu bar. Click it:
 - **Guard while locked**: the on/off toggle. Filled shield = on, slashed shield = off.
 - The last report, and **Show log…** for every lock (also the quiet ones).
 - **Open at login**: start the app when you log in.
+- The shield starts just left of the battery. Cmd-drag it to move it; it remembers where.
 - A shield with **!** means something happened while it was locked. It clears when you open the menu.
 
 ```sh
@@ -41,6 +42,7 @@ A lock with nothing else to report is written to the log only, with no notificat
 - `Sources/Guard.swift`: the guard. It listens for the `com.apple.screenIsLocked` and `com.apple.screenIsUnlocked` notifications.
 - `Sources/main.swift`: the menu bar app (AppKit, no Xcode project). "Open at login" writes `~/Library/LaunchAgents/com.alex-quiterio.lock-guard.login.plist`.
 - `Resources/notify.applescript`: shows the notification.
+- `Resources/AppIcon.icns`: the app icon, drawn by `Resources/make-icon.swift` (`swift Resources/make-icon.swift /tmp/AppIcon.iconset && iconutil -c icns /tmp/AppIcon.iconset -o Resources/AppIcon.icns`).
 - `guard`: builds `build/Lock Guard.app` with `swiftc` and installs it.
 - Reports go to `~/Library/Logs/lock-guard.log`.
 

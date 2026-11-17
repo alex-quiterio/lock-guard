@@ -13,7 +13,7 @@ build() {
   rm -rf "$APP"
   mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
   cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
-  cp "$ROOT/Resources/notify.applescript" "$APP/Contents/Resources/"
+  cp "$ROOT/Resources/notify.applescript" "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/"
   swiftc -O "$ROOT"/Sources/*.swift -o "$APP/Contents/MacOS/Lock Guard"
   codesign --force --sign - "$APP" >/dev/null 2>&1 || true
   echo "built $APP"
@@ -29,6 +29,7 @@ install() {
   build
   remove_old_agent
   pkill -x "Lock Guard" >/dev/null 2>&1 || true
+  while pgrep -x "Lock Guard" >/dev/null; do sleep 0.2; done
   mkdir -p "$HOME/Applications"
   rm -rf "$INSTALLED"
   cp -R "$APP" "$INSTALLED"

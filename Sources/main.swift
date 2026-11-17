@@ -2,6 +2,7 @@
 import AppKit
 
 let enabledKey = "enabled"
+let statusItemName = "lock-guard"
 let loginAgentLabel = "com.alex-quiterio.lock-guard.login"
 let loginAgentPlist = FileManager.default.homeDirectoryForCurrentUser
     .appendingPathComponent("Library/LaunchAgents/\(loginAgentLabel).plist")
@@ -18,7 +19,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        placeNextToBattery()
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        statusItem.autosaveName = statusItemName
+        statusItem.isVisible = true
         let menu = NSMenu()
         menu.delegate = self
         statusItem.menu = menu
@@ -26,6 +30,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         lockGuard.start()
         Report.write("app started, guard \(isEnabled ? "on" : "off")")
         refreshIcon()
+    }
+
+    // A new icon lands furthest left, which a full menu bar hides behind the notch. Start next to the battery
+    // (positions count points from the right edge); a Cmd-drag afterwards overwrites this and is kept.
+    private func placeNextToBattery() {
+        let key = "NSStatusItem Preferred Position \(statusItemName)"
+        guard UserDefaults.standard.object(forKey: key) == nil else { return }
+
+        let battery = UserDefaults(suiteName: "com.apple.controlcenter")?
+            .object(forKey: "NSStatusItem Preferred Position Battery") as? Double ?? 400
+        UserDefaults.standard.set(battery + 16, forKey: key)
     }
 
     private func report(_ summary: Summary) {
