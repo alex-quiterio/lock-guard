@@ -28,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusItem.menu = menu
         lockGuard = LockGuard(isEnabled: { [unowned self] in isEnabled }, onReport: { [unowned self] in report($0) })
         lockGuard.start()
-        Report.write("app started, guard \(isEnabled ? "on" : "off")")
+        Report.write("🛡️  Lock Guard started  ·  guard \(isEnabled ? "on" : "off")")
         refreshIcon()
     }
 
@@ -87,12 +87,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleEnabled() {
         isEnabled.toggle()
-        Report.write("guard \(isEnabled ? "on" : "off")")
+        Report.write(isEnabled ? "🟢 Guard turned on" : "⚪️ Guard turned off")
         refreshIcon()
     }
 
     @objc private func showLog() {
-        if !FileManager.default.fileExists(atPath: logFile.path) { Report.write("log created") }
+        if !FileManager.default.fileExists(atPath: logFile.path) { Report.write("📒 Log created") }
 
         NSWorkspace.shared.open(logFile)
     }

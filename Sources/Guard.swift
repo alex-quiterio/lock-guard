@@ -13,6 +13,7 @@ final class LockGuard {
     private var lastIdle: TimeInterval = 0
     private var inputs: [Date] = []
     private var timer: Timer?
+    private var activity: NSObjectProtocol?
     private let isEnabled: () -> Bool
     private let onReport: (Summary) -> Void
 
@@ -35,13 +36,18 @@ final class LockGuard {
         lastIdle = HID.idleSeconds() ?? 0
         timer?.invalidate()
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in self.poll() }
-        Report.write("locked")
+        // Keep App Nap from stretching the 1-second poll while nobody is at the Mac.
+        activity = ProcessInfo.processInfo.beginActivity(
+            options: [.userInitiatedAllowingIdleSystemSleep, .latencyCritical], reason: "Watching the locked screen")
+        Report.write("🔒 Locked")
     }
 
+    // Any input since the last poll (about 1 s ago) leaves the idle counter below the poll interval,
+    // so steady typing counts too, not only the first key after a pause.
     private func poll() {
         guard let lockedAt, let idle = HID.idleSeconds() else { return }
 
-        if idle + 0.5 < lastIdle {
+        if idle < 1.1 || idle + 0.5 < lastIdle {
             let at = Date().addingTimeInterval(-idle)
             if at.timeIntervalSince(lockedAt) > graceAfterLock { inputs.append(at) }
         }
@@ -52,13 +58,16 @@ final class LockGuard {
     private func unlocked() {
         timer?.invalidate()
         timer = nil
+        if let activity { ProcessInfo.processInfo.endActivity(activity) }
+
+        activity = nil
         guard let lockedAt else { return }
 
         self.lockedAt = nil
         let unlockedAt = Date()
         let failures = Passwords.failures(from: lockedAt, to: unlockedAt)
         let summary = Summary(lockedAt: lockedAt, unlockedAt: unlockedAt, inputs: inputs, failures: failures)
-        Report.write(summary.text)
+        Report.write(summary.logEntry)
         onReport(summary)
     }
 }
@@ -110,18 +119,20 @@ struct Summary {
         return "While locked \(Clock.span(lockedAt, unlockedAt)): " + parts.joined(separator: "; ")
     }
 
-    var text: String {
-        var lines = ["unlocked, locked since \(Clock.time(lockedAt))"]
-        for b in bursts {
-            lines.append("  input \(Clock.span(b.start, b.end))\(isOwner(b.end) ? " (probably you unlocking)" : "")")
-        }
-
-        for f in failures {
-            lines.append("  wrong password \(Clock.time(f))\(isOwner(f) ? " (probably your typo)" : "")")
-        }
-
-        if bursts.isEmpty && failures.isEmpty { lines.append("  nothing happened") }
+    // The unlock line, then one aligned row per input burst and wrong password, in time order.
+    var logEntry: String {
+        let verdict = isSuspicious ? "⚠️  SOMEONE TOUCHED IT" : "✅ nobody else touched it"
+        var lines = ["🔓 Unlocked after \(Clock.duration(unlockedAt.timeIntervalSince(lockedAt)))  ·  \(verdict)"]
+        let rows: [(at: Date, line: String)] =
+            bursts.map { ($0.start, row("⌨️", "input", Clock.span($0.start, $0.end), isOwner($0.end) ? "you, unlocking" : "⚠️")) }
+            + failures.map { ($0, row("❌", "wrong password", Clock.time($0), isOwner($0) ? "your typo?" : "⚠️")) }
+        lines += rows.sorted { $0.at < $1.at }.map(\.line)
         return lines.joined(separator: "\n")
+    }
+
+    private func row(_ icon: String, _ what: String, _ when: String, _ note: String) -> String {
+        let pad = { (s: String, n: Int) in s.padding(toLength: max(n, s.count), withPad: " ", startingAt: 0) }
+        return Report.indent + "\(icon) " + pad(what, 16) + pad(when, 19) + note
     }
 }
 
@@ -179,19 +190,43 @@ enum Clock {
     static func span(_ a: Date, _ b: Date) -> String {
         b.timeIntervalSince(a) < 1 ? time(a) : "\(time(a))–\(time(b))"
     }
+
+    static func duration(_ seconds: TimeInterval) -> String {
+        let s = Int(seconds.rounded())
+        if s < 60 { return "\(s)s" }
+        if s < 3600 { return "\(s / 60)m \(s % 60)s" }
+        return "\(s / 3600)h \(s % 3600 / 60)m"
+    }
 }
 
 enum Report {
+    static let indent = String(repeating: " ", count: 10)
+    private static let lastDayKey = "lastLogDay"
+
+    // Each entry starts with its time; a new day gets a header line first.
     static func write(_ text: String) {
-        let fmt = ISO8601DateFormatter()
-        fmt.timeZone = .current
-        let line = "[\(fmt.string(from: Date()))] \(text)\n"
+        let now = Date()
+        let day = DateFormatter()
+        day.dateFormat = "EEEE d MMMM yyyy"
+        let today = day.string(from: now)
+        var out = ""
+        if UserDefaults.standard.string(forKey: lastDayKey) != today || !FileManager.default.fileExists(atPath: logFile.path) {
+            let title = "━━━ \(today) "
+            out += "\n" + title + String(repeating: "━", count: max(3, 56 - title.count)) + "\n\n"
+            UserDefaults.standard.set(today, forKey: lastDayKey)
+        }
+
+        out += "\(Clock.time(now))  \(text)\n"
+        append(out)
+    }
+
+    private static func append(_ text: String) {
         if let handle = try? FileHandle(forWritingTo: logFile) {
             handle.seekToEndOfFile()
-            handle.write(Data(line.utf8))
+            handle.write(Data(text.utf8))
             try? handle.close()
         } else {
-            try? Data(line.utf8).write(to: logFile)
+            try? Data(text.utf8).write(to: logFile)
         }
     }
 
